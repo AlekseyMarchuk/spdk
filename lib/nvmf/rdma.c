@@ -283,6 +283,7 @@ struct spdk_nvmf_rdma_resource_opts {
 	struct ibv_pd			*pd;
 	uint32_t			max_queue_depth;
 	uint32_t			in_capsule_data_size;
+	uint32_t			max_inline_size;
 	bool				shared;
 };
 
@@ -452,6 +453,7 @@ struct spdk_nvmf_rdma_device {
 	struct ibv_pd				*pd;
 
 	int					num_srq;
+	uint32_t			max_inline_size;
 
 	TAILQ_ENTRY(spdk_nvmf_rdma_device)	link;
 };
@@ -480,6 +482,66 @@ struct spdk_nvmf_rdma_transport {
 	TAILQ_HEAD(, spdk_nvmf_rdma_device)	devices;
 	TAILQ_HEAD(, spdk_nvmf_rdma_port)	ports;
 };
+
+static uint32_t
+spdk_nvmf_rdma_device_get_max_inline_size(struct spdk_nvmf_rdma_device* device)
+{
+	uint32_t current_value = 2;
+	uint32_t max_value = INT_MAX / 2;
+	uint32_t result = 0;
+	const uint32_t multiplier = 2;
+	struct ibv_qp *qp;
+	struct ibv_cq* cq = ibv_create_cq(device->context, 1, NULL, NULL, 0);
+	if(!cq) {
+		SPDK_ERRLOG("Unable to retrieve max inline size - cq creation failed, error %d\n", errno);
+		return 0;
+	}
+	struct ibv_qp_init_attr qp_init_attr = {
+		 .send_cq = cq,
+		 .recv_cq = cq,
+		 .cap.max_send_wr = 1,
+		 .cap.max_send_sge = 1,
+		 .qp_type = IBV_QPT_RC,
+		 .sq_sig_all = 1
+	};
+
+	do {
+		qp_init_attr.cap.max_inline_data = current_value;
+		qp = ibv_create_qp(device->pd, &qp_init_attr);
+		if(qp) {
+			result = current_value;
+			ibv_destroy_qp(qp);
+		} else {
+			break;
+		}
+		current_value *= multiplier;
+	} while(qp && current_value < max_value);
+
+	if(result) {
+		uint32_t next_value;
+		max_value = current_value;
+		current_value = result;
+		
+		do {
+			next_value = current_value  + (max_value - current_value) / 2;
+			qp_init_attr.cap.max_inline_data = next_value;
+			qp = ibv_create_qp(device->pd, &qp_init_attr);
+			if(qp) {
+				current_value = next_value;
+				ibv_destroy_qp(qp);
+			} else {
+				max_value = next_value;
+			}
+		} while (max_value - current_value > 2);
+
+		SPDK_DEBUGLOG(SPDK_LOG_RDMA, "Retrieved max_inline_data = %u\n", result);
+		result = current_value;
+	}
+
+	ibv_destroy_cq(cq);
+
+	return result;
+}
 
 static inline int
 spdk_nvmf_rdma_check_ibv_state(enum ibv_qp_state state)
@@ -844,6 +906,9 @@ nvmf_rdma_resources_create(struct spdk_nvmf_rdma_resource_opts *opts)
 		rdma_req->rsp.wr.next = NULL;
 		rdma_req->rsp.wr.opcode = IBV_WR_SEND;
 		rdma_req->rsp.wr.send_flags = IBV_SEND_SIGNALED;
+		if (rdma_req->rsp.sgl[0].length <= opts->max_inline_size) {
+			rdma_req->rsp.wr.send_flags |= IBV_SEND_INLINE;
+		}
 		rdma_req->rsp.wr.sg_list = rdma_req->rsp.sgl;
 		rdma_req->rsp.wr.num_sge = SPDK_COUNTOF(rdma_req->rsp.sgl);
 
@@ -859,6 +924,8 @@ nvmf_rdma_resources_create(struct spdk_nvmf_rdma_resource_opts *opts)
 		rdma_req->state = RDMA_REQUEST_STATE_FREE;
 		STAILQ_INSERT_TAIL(&resources->free_queue, rdma_req, state_link);
 	}
+
+	SPDK_ERRLOG("create resources, max_inline %u\n", opts->max_inline_size);
 
 	return resources;
 
@@ -987,6 +1054,8 @@ spdk_nvmf_rdma_qpair_initialize(struct spdk_nvmf_qpair *qpair)
 					  2 + 1; /* SEND, READ, and WRITE operations + dummy drain WR */
 	ibv_init_attr.cap.max_send_sge	= spdk_min(device->attr.max_sge, NVMF_DEFAULT_TX_SGE);
 	ibv_init_attr.cap.max_recv_sge	= spdk_min(device->attr.max_sge, NVMF_DEFAULT_RX_SGE);
+	
+	ibv_init_attr.cap.max_inline_data = device->max_inline_size;
 
 	if (rqpair->srq == NULL && nvmf_rdma_resize_cq(rqpair, device) < 0) {
 		SPDK_ERRLOG("Failed to resize the completion queue. Cannot initialize qpair.\n");
@@ -1019,6 +1088,7 @@ spdk_nvmf_rdma_qpair_initialize(struct spdk_nvmf_qpair *qpair)
 		opts.shared = false;
 		opts.max_queue_depth = rqpair->max_queue_depth;
 		opts.in_capsule_data_size = transport->opts.in_capsule_data_size;
+		opts.max_inline_size = device->max_inline_size;
 
 		rqpair->resources = nvmf_rdma_resources_create(&opts);
 
@@ -1678,6 +1748,16 @@ nvmf_rdma_request_fill_iovs_multi_sgl(struct spdk_nvmf_rdma_transport *rtranspor
 
 		current_wr->wr.rdma.rkey = desc->keyed.key;
 		current_wr->wr.rdma.remote_addr = desc->address;
+
+		/* CASE 1 */
+		if(current_wr->opcode == IBV_WR_RDMA_WRITE || current_wr->opcode == IBV_WR_SEND) {
+			if(desc->keyed.length <= device->max_inline_size) {
+				current_wr->send_flags |= IBV_SEND_INLINE;
+			} else {
+				current_wr->send_flags &= ~IBV_SEND_INLINE;
+			}
+		}
+
 		current_wr = current_wr->next;
 		desc++;
 	}
@@ -1755,9 +1835,17 @@ spdk_nvmf_rdma_request_parse_sgl(struct spdk_nvmf_rdma_transport *rtransport,
 		if (rdma_req->req.xfer == SPDK_NVME_DATA_CONTROLLER_TO_HOST) {
 			rdma_req->data.wr.opcode = IBV_WR_RDMA_WRITE;
 			rdma_req->data.wr.next = &rdma_req->rsp.wr;
+
+			/* CASE 2 */
+			if (rdma_req->req.length > device->max_inline_size) {
+				rdma_req->data.wr.send_flags &= ~IBV_SEND_INLINE;
+			} else {
+				rdma_req->data.wr.send_flags |= IBV_SEND_INLINE;
+			}
 		} else if (rdma_req->req.xfer == SPDK_NVME_DATA_HOST_TO_CONTROLLER) {
 			rdma_req->data.wr.opcode = IBV_WR_RDMA_READ;
 			rdma_req->data.wr.next = NULL;
+			rdma_req->data.wr.send_flags &= ~IBV_SEND_INLINE;
 		}
 
 		/* set the number of outstanding data WRs for this request. */
@@ -2279,18 +2367,15 @@ spdk_nvmf_rdma_create(struct spdk_nvmf_transport_opts *opts)
 		pd = NULL;
 		if (g_nvmf_hooks.get_ibv_pd) {
 			pd = g_nvmf_hooks.get_ibv_pd(NULL, device->context);
-		}
-
-		if (!g_nvmf_hooks.get_ibv_pd) {
-			device->pd = ibv_alloc_pd(device->context);
-			if (!device->pd) {
+		} else {
+			pd = ibv_alloc_pd(device->context);
+			if (!pd) {
 				SPDK_ERRLOG("Unable to allocate protection domain.\n");
 				spdk_nvmf_rdma_destroy(&rtransport->transport);
 				return NULL;
 			}
-		} else {
-			device->pd = pd;
 		}
+		device->pd = pd;
 
 		assert(device->map == NULL);
 
@@ -2300,6 +2385,8 @@ spdk_nvmf_rdma_create(struct spdk_nvmf_transport_opts *opts)
 			spdk_nvmf_rdma_destroy(&rtransport->transport);
 			return NULL;
 		}
+
+		device->max_inline_size = spdk_nvmf_rdma_device_get_max_inline_size(device);
 
 		assert(device->map != NULL);
 		assert(device->pd != NULL);
@@ -3011,6 +3098,7 @@ spdk_nvmf_rdma_poll_group_create(struct spdk_nvmf_transport *transport)
 			opts.shared = true;
 			opts.max_queue_depth = poller->max_srq_depth;
 			opts.in_capsule_data_size = transport->opts.in_capsule_data_size;
+			opts.max_inline_size = device->max_inline_size;
 
 			poller->resources = nvmf_rdma_resources_create(&opts);
 			if (!poller->resources) {
