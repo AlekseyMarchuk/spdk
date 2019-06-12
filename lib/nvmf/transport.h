@@ -1,8 +1,8 @@
 /*-
  *   BSD LICENSE
  *
- *   Copyright (c) Intel Corporation.
- *   All rights reserved.
+ *   Copyright (c) Intel Corporation. All rights reserved.
+ *   Copyright (c) 2019 Mellanox Technologies LTD. All rights reserved.
  *
  *   Redistribution and use in source and binary forms, with or without
  *   modification, are permitted provided that the following conditions
@@ -117,6 +117,12 @@ struct spdk_nvmf_transport_ops {
 	 */
 	int (*poll_group_remove)(struct spdk_nvmf_transport_poll_group *group,
 				 struct spdk_nvmf_qpair *qpair);
+
+	/**
+	 * Select a poll group
+	 */
+	void *(*poll_group_select)(struct spdk_nvmf_qpair *qpair,
+				   spdk_nvmf_get_poll_group_fn get_pg_fn);
 
 	/**
 	 * Poll the group to process I/O

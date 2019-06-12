@@ -1,8 +1,8 @@
 /*-
  *   BSD LICENSE
  *
- *   Copyright (c) Intel Corporation.
- *   All rights reserved.
+ *   Copyright (c) Intel Corporation. All rights reserved.
+ *   Copyright (c) 2019 Mellanox Technologies LTD. All rights reserved.
  *
  *   Redistribution and use in source and binary forms, with or without
  *   modification, are permitted provided that the following conditions
@@ -48,6 +48,7 @@
 enum spdk_nvmf_connect_sched {
 	CONNECT_SCHED_ROUND_ROBIN = 0,
 	CONNECT_SCHED_HOST_IP,
+	CONNECT_SCHED_TRANSPORT_SPEC
 };
 
 struct spdk_nvmf_tgt_conf {

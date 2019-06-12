@@ -1,8 +1,8 @@
 /*-
  *   BSD LICENSE
  *
- *   Copyright (c) Intel Corporation.
- *   All rights reserved.
+ *   Copyright (c) Intel Corporation. All rights reserved.
+ *   Copyright (c) 2019 Mellanox Technologies LTD. All rights reserved.
  *
  *   Redistribution and use in source and binary forms, with or without
  *   modification, are permitted provided that the following conditions
@@ -2625,6 +2625,13 @@ spdk_nvmf_tcp_poll_group_remove(struct spdk_nvmf_transport_poll_group *group,
 	return rc;
 }
 
+static void *
+spdk_nvmf_tcp_poll_group_select(struct spdk_nvmf_qpair *qpair,
+				spdk_nvmf_get_poll_group_fn get_pg_fn)
+{
+	return get_pg_fn(CONNECT_SCHED_POLL_GROUP_COMMON);
+}
+
 static int
 spdk_nvmf_tcp_req_complete(struct spdk_nvmf_request *req)
 {
@@ -2778,6 +2785,7 @@ const struct spdk_nvmf_transport_ops spdk_nvmf_transport_tcp = {
 	.poll_group_destroy = spdk_nvmf_tcp_poll_group_destroy,
 	.poll_group_add = spdk_nvmf_tcp_poll_group_add,
 	.poll_group_remove = spdk_nvmf_tcp_poll_group_remove,
+	.poll_group_select = spdk_nvmf_tcp_poll_group_select,
 	.poll_group_poll = spdk_nvmf_tcp_poll_group_poll,
 
 	.req_free = spdk_nvmf_tcp_req_free,

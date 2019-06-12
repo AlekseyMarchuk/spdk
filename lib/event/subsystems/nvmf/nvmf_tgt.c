@@ -1,8 +1,8 @@
 /*-
  *   BSD LICENSE
  *
- *   Copyright (c) Intel Corporation.
- *   All rights reserved.
+ *   Copyright (c) Intel Corporation. All rights reserved.
+ *   Copyright (c) 2019 Mellanox Technologies LTD. All rights reserved.
  *
  *   Redistribution and use in source and binary forms, with or without
  *   modification, are permitted provided that the following conditions
@@ -76,8 +76,12 @@ struct spdk_nvmf_tgt *g_spdk_nvmf_tgt = NULL;
 
 static enum nvmf_tgt_state g_tgt_state;
 
-/* Round-Robin/IP-based tracking of threads to poll group assignment */
-static struct nvmf_tgt_poll_group *g_next_poll_group = NULL;
+/* Common Round-Robin/IP-based tracking of threads to poll group assignment */
+static struct nvmf_tgt_poll_group *g_next_common_poll_group = NULL;
+
+/* Transport specific tracking of threads to poll group assignment */
+static struct nvmf_tgt_poll_group *g_next_admin_poll_group = NULL;
+static struct nvmf_tgt_poll_group *g_next_io_poll_group = NULL;
 
 static TAILQ_HEAD(, nvmf_tgt_poll_group) g_poll_groups = TAILQ_HEAD_INITIALIZER(g_poll_groups);
 static size_t g_num_poll_groups = 0;
@@ -108,19 +112,32 @@ spdk_nvmf_subsystem_fini(void)
 	_spdk_nvmf_shutdown_cb(NULL);
 }
 
-/* Round robin selection of poll groups */
-static struct nvmf_tgt_poll_group *
-spdk_nvmf_get_next_pg(void)
+static void *
+spdk_nvmf_get_next_pg(enum spdk_nvmf_connect_sched_poll_group_type group_type)
 {
-	struct nvmf_tgt_poll_group *pg;
+	struct nvmf_tgt_poll_group **pg;
+	struct nvmf_tgt_poll_group *result;
 
-	pg = g_next_poll_group;
-	g_next_poll_group = TAILQ_NEXT(pg, link);
-	if (g_next_poll_group == NULL) {
-		g_next_poll_group = TAILQ_FIRST(&g_poll_groups);
+	switch (group_type) {
+	case CONNECT_SCHED_POLL_GROUP_ADMIN:
+		pg = &g_next_admin_poll_group;
+		break;
+	case CONNECT_SCHED_POLL_GROUP_IO:
+		pg = &g_next_io_poll_group;
+		break;
+	case CONNECT_SCHED_POLL_GROUP_COMMON:
+	default:
+		pg = &g_next_common_poll_group;
+		break;
 	}
 
-	return pg;
+	result = *pg;
+	*pg = TAILQ_NEXT(*pg, link);
+	if (*pg == NULL) {
+		*pg = TAILQ_FIRST(&g_poll_groups);
+	}
+
+	return result;
 }
 
 static void
@@ -165,7 +182,7 @@ nvmf_tgt_get_pg(struct spdk_nvmf_qpair *qpair)
 	case CONNECT_SCHED_HOST_IP:
 		ret = spdk_nvmf_qpair_get_peer_trid(qpair, &trid);
 		if (ret) {
-			pg = g_next_poll_group;
+			pg = spdk_nvmf_get_next_pg(CONNECT_SCHED_POLL_GROUP_COMMON);;
 			SPDK_ERRLOG("Invalid host transport Id. Assigning to poll group %p\n", pg);
 			break;
 		}
@@ -181,21 +198,24 @@ nvmf_tgt_get_pg(struct spdk_nvmf_qpair *qpair)
 		if (!tmp_trid) {
 			new_trid = calloc(1, sizeof(*new_trid));
 			if (!new_trid) {
-				pg = g_next_poll_group;
+				pg = spdk_nvmf_get_next_pg(CONNECT_SCHED_POLL_GROUP_COMMON);;
 				SPDK_ERRLOG("Insufficient memory. Assigning to poll group %p\n", pg);
 				break;
 			}
 			/* Get the next available poll group for the new host */
-			pg = spdk_nvmf_get_next_pg();
+			pg = spdk_nvmf_get_next_pg(CONNECT_SCHED_POLL_GROUP_COMMON);
 			new_trid->pg = pg;
 			memcpy(new_trid->host_trid.traddr, trid.traddr,
 			       SPDK_NVMF_TRADDR_MAX_LEN + 1);
 			TAILQ_INSERT_TAIL(&g_nvmf_tgt_host_trids, new_trid, link);
 		}
 		break;
+	case CONNECT_SCHED_TRANSPORT_SPEC:
+		pg = spdk_nvmf_poll_group_select(qpair, spdk_nvmf_get_next_pg);
+		break;
 	case CONNECT_SCHED_ROUND_ROBIN:
 	default:
-		pg = spdk_nvmf_get_next_pg();
+		pg = spdk_nvmf_get_next_pg(CONNECT_SCHED_POLL_GROUP_COMMON);
 		break;
 	}
 
@@ -324,8 +344,11 @@ nvmf_tgt_create_poll_group(void *ctx)
 	TAILQ_INSERT_TAIL(&g_poll_groups, pg, link);
 	g_num_poll_groups++;
 
-	if (g_next_poll_group == NULL) {
-		g_next_poll_group = pg;
+	/* it is enough to check g_next_common_poll_group */
+	if (g_next_common_poll_group == NULL) {
+		g_next_common_poll_group = pg;
+		g_next_admin_poll_group = pg;
+		g_next_io_poll_group = pg;
 	}
 }
 

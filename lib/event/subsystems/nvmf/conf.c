@@ -2,7 +2,7 @@
  *   BSD LICENSE
  *
  *   Copyright (c) Intel Corporation. All rights reserved.
- *   Copyright (c) 2018 Mellanox Technologies LTD. All rights reserved.
+ *   Copyright (c) 2018-2019 Mellanox Technologies LTD. All rights reserved.
  *
  *   Redistribution and use in source and binary forms, with or without
  *   modification, are permitted provided that the following conditions
@@ -106,10 +106,24 @@ spdk_nvmf_read_config_file_tgt_conf(struct spdk_conf_section *sp,
 				    struct spdk_nvmf_tgt_conf *conf)
 {
 	int acceptor_poll_rate;
+	const char *conn_sched;
 
 	acceptor_poll_rate = spdk_conf_section_get_intval(sp, "AcceptorPollRate");
 	if (acceptor_poll_rate >= 0) {
 		conf->acceptor_poll_rate = acceptor_poll_rate;
+	}
+
+	conn_sched = spdk_conf_section_get_val(sp, "ConnSched");
+	if (conn_sched) {
+		if (strcmp(conn_sched, "HostIp") == 0) {
+			conf->conn_sched = CONNECT_SCHED_HOST_IP;
+		} else if (strcmp(conn_sched, "RoundRobin") == 0) {
+			conf->conn_sched = CONNECT_SCHED_ROUND_ROBIN;
+		} else if (strcmp(conn_sched, "TransportSpec") == 0) {
+			conf->conn_sched = CONNECT_SCHED_TRANSPORT_SPEC;
+		} else {
+			SPDK_ERRLOG("Unknown \"ConnSched\" param \"%s\", will be used a default one\n", conn_sched);
+		}
 	}
 }
 

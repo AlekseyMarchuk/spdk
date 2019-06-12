@@ -2,7 +2,7 @@
  *   BSD LICENSE
  *
  *   Copyright (c) Intel Corporation. All rights reserved.
- *   Copyright (c) 2018 Mellanox Technologies LTD. All rights reserved.
+ *   Copyright (c) 2018-2019 Mellanox Technologies LTD. All rights reserved.
  *
  *   Redistribution and use in source and binary forms, with or without
  *   modification, are permitted provided that the following conditions
@@ -1300,6 +1300,9 @@ nvmf_rdma_connect(struct spdk_nvmf_transport *transport, struct rdma_cm_event *e
 	rqpair->cm_id = event->id;
 	rqpair->listen_id = event->listen_id;
 	rqpair->qpair.transport = transport;
+	/* use qid from the private data to determine the qpair type
+	   qid will be set to the appropriate value when the controller is created */
+	rqpair->qpair.qid = private_data->qid;
 
 	event->id->context = &rqpair->qpair;
 
@@ -3143,6 +3146,21 @@ spdk_nvmf_rdma_poll_group_add(struct spdk_nvmf_transport_poll_group *group,
 	return 0;
 }
 
+static void *
+spdk_nvmf_rdma_poll_group_select(struct spdk_nvmf_qpair *qpair,
+				 spdk_nvmf_get_poll_group_fn next_pg_fn)
+{
+	void *pg;
+
+	if (qpair->qid == 0) {
+		pg = next_pg_fn(CONNECT_SCHED_POLL_GROUP_ADMIN);
+	} else {
+		pg = next_pg_fn(CONNECT_SCHED_POLL_GROUP_IO);
+	}
+
+	return pg;
+}
+
 static int
 spdk_nvmf_rdma_request_free(struct spdk_nvmf_request *req)
 {
@@ -3653,6 +3671,7 @@ const struct spdk_nvmf_transport_ops spdk_nvmf_transport_rdma = {
 	.poll_group_create = spdk_nvmf_rdma_poll_group_create,
 	.poll_group_destroy = spdk_nvmf_rdma_poll_group_destroy,
 	.poll_group_add = spdk_nvmf_rdma_poll_group_add,
+	.poll_group_select = spdk_nvmf_rdma_poll_group_select,
 	.poll_group_poll = spdk_nvmf_rdma_poll_group_poll,
 
 	.req_free = spdk_nvmf_rdma_request_free,

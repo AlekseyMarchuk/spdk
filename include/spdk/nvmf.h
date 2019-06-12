@@ -2,7 +2,7 @@
  *   BSD LICENSE
  *
  *   Copyright (c) Intel Corporation. All rights reserved.
- *   Copyright (c) 2018 Mellanox Technologies LTD. All rights reserved.
+ *   Copyright (c) 2018-2019 Mellanox Technologies LTD. All rights reserved.
  *
  *   Redistribution and use in source and binary forms, with or without
  *   modification, are permitted provided that the following conditions
@@ -49,6 +49,12 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+enum spdk_nvmf_connect_sched_poll_group_type {
+	CONNECT_SCHED_POLL_GROUP_COMMON = 0,
+	CONNECT_SCHED_POLL_GROUP_ADMIN,
+	CONNECT_SCHED_POLL_GROUP_IO,
+};
 
 struct spdk_nvmf_tgt;
 struct spdk_nvmf_subsystem;
@@ -178,6 +184,20 @@ void spdk_nvmf_poll_group_destroy(struct spdk_nvmf_poll_group *group);
  */
 int spdk_nvmf_poll_group_add(struct spdk_nvmf_poll_group *group,
 			     struct spdk_nvmf_qpair *qpair);
+
+/**
+ * Function to be called to a get poll group by type
+ */
+typedef void *(*spdk_nvmf_get_poll_group_fn)(enum spdk_nvmf_connect_sched_poll_group_type);
+
+/**
+ * Select a poll group depending on the qpair type
+ *
+ * \param qpair The qpair which needs a poll group
+ * \param next_pg_fn Function to be called to get a poll group
+ */
+void *spdk_nvmf_poll_group_select(struct spdk_nvmf_qpair *qpair,
+				  spdk_nvmf_get_poll_group_fn next_pg_fn);
 
 typedef void (*nvmf_qpair_disconnect_cb)(void *ctx);
 
