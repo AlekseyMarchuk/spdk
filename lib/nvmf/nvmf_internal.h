@@ -45,6 +45,9 @@
 #include "spdk/util.h"
 #include "spdk/thread.h"
 
+#include "nvmf_poll_group.h"
+#include "nvmf_conn_sched.h"
+
 #define SPDK_NVMF_MAX_SGL_ENTRIES	16
 
 /* AIO backend requires block size aligned data buffers,
@@ -87,6 +90,9 @@ struct spdk_nvmf_tgt {
 
 	spdk_nvmf_tgt_destroy_done_fn		*destroy_cb_fn;
 	void					*destroy_cb_arg;
+	const struct spdk_nvmf_tgt_conf *conf;
+	TAILQ_HEAD(, spdk_nvmf_poll_group)	poll_groups;
+	struct spdk_nvmf_tgt_conn_sched conn_sched;
 };
 
 struct spdk_nvmf_host {
@@ -141,20 +147,6 @@ struct spdk_nvmf_subsystem_poll_group {
 	enum spdk_nvmf_subsystem_state		state;
 
 	TAILQ_HEAD(, spdk_nvmf_request)		queued;
-};
-
-struct spdk_nvmf_poll_group {
-	struct spdk_thread				*thread;
-	struct spdk_poller				*poller;
-
-	TAILQ_HEAD(, spdk_nvmf_transport_poll_group)	tgroups;
-
-	/* Array of poll groups indexed by subsystem id (sid) */
-	struct spdk_nvmf_subsystem_poll_group		*sgroups;
-	uint32_t					num_sgroups;
-
-	/* All of the queue pairs that belong to this poll group */
-	TAILQ_HEAD(, spdk_nvmf_qpair)			qpairs;
 };
 
 typedef enum _spdk_nvmf_request_exec_status {
@@ -416,6 +408,18 @@ static inline bool
 spdk_nvmf_qpair_is_admin_queue(struct spdk_nvmf_qpair *qpair)
 {
 	return qpair->qid == 0;
+}
+
+void nvmf_tgt_disconnect_next_qpair(struct spdk_nvmf_poll_group *group);
+
+static inline void
+spdk_nvmf_qpair_set_state(struct spdk_nvmf_qpair *qpair,
+			  enum spdk_nvmf_qpair_state state)
+{
+	assert(qpair != NULL);
+	assert(qpair->group->thread == spdk_get_thread());
+
+	qpair->state = state;
 }
 
 #endif /* __NVMF_INTERNAL_H__ */

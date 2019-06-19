@@ -1,8 +1,7 @@
 /*-
  *   BSD LICENSE
  *
- *   Copyright (c) Intel Corporation.
- *   All rights reserved.
+ *   Copyright (c) Mellanox Corporation. All rights reserved.
  *
  *   Redistribution and use in source and binary forms, with or without
  *   modification, are permitted provided that the following conditions
@@ -31,28 +30,38 @@
  *   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef NVMF_TGT_H
-#define NVMF_TGT_H
+#ifndef SPDK_NVMF_POLL_GROUP_H
+#define SPDK_NVMF_POLL_GROUP_H
 
-#include "spdk/stdinc.h"
+struct spdk_nvmf_poll_group {
+	struct spdk_thread				*thread;
+	struct spdk_poller				*poller;
 
-#include "spdk/nvmf.h"
-#include "spdk/queue.h"
+	TAILQ_HEAD(, spdk_nvmf_transport_poll_group)	tgroups;
 
-#include "spdk_internal/event.h"
-#include "spdk_internal/log.h"
+	/* Array of poll groups indexed by subsystem id (sid) */
+	struct spdk_nvmf_subsystem_poll_group		*sgroups;
+	uint32_t					num_sgroups;
 
-#define ACCEPT_TIMEOUT_US	10000 /* 10ms */
-#define DEFAULT_CONN_SCHED CONNECT_SCHED_ROUND_ROBIN
+	/* All of the queue pairs that belong to this poll group */
+	TAILQ_HEAD(, spdk_nvmf_qpair)			qpairs;
+	TAILQ_ENTRY(spdk_nvmf_poll_group)			link;
+};
 
-extern struct spdk_nvmf_tgt_conf *g_spdk_nvmf_tgt_conf;
+/**
+ * Create a poll group as an IO channel
+ *
+ * \param an io_device IO device (nvmf_tgt)
+ * \param ctx_buf a pointer to spdk_nvmf_poll_group
+ */
+int spdk_nvmf_tgt_create_poll_group(void *io_device, void *ctx_buf);
 
-extern uint32_t g_spdk_nvmf_tgt_max_subsystems;
+/**
+ * Destroy a poll group as an IO channel
+ *
+ * \param an io_device IO device (nvmf_tgt)
+ * \param ctx_buf a pointer to spdk_nvmf_poll_group
+ */
+void spdk_nvmf_tgt_destroy_poll_group(void *io_device, void *ctx_buf);
 
-extern struct spdk_nvmf_tgt *g_spdk_nvmf_tgt;
-
-typedef void (*spdk_nvmf_parse_conf_done_fn)(int status);
-
-int spdk_nvmf_parse_conf(spdk_nvmf_parse_conf_done_fn cb_fn);
-
-#endif
+#endif /* SPDK_NVMF_POLL_GROUP_H */

@@ -1,8 +1,7 @@
 /*-
  *   BSD LICENSE
  *
- *   Copyright (c) Intel Corporation.
- *   All rights reserved.
+ *   Copyright (c) Mellanox Corporation. All rights reserved.
  *
  *   Redistribution and use in source and binary forms, with or without
  *   modification, are permitted provided that the following conditions
@@ -31,28 +30,26 @@
  *   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef NVMF_TGT_H
-#define NVMF_TGT_H
+#ifndef SPDK_NVMF_CONN_SCHED_H
+#define SPDK_NVMF_CONN_SCHED_H
 
-#include "spdk/stdinc.h"
+struct spdk_nvmf_poll_group;
 
-#include "spdk/nvmf.h"
-#include "spdk/queue.h"
+struct spdk_nvmf_tgt_host_trid {
+	struct spdk_nvme_transport_id       host_trid;
+	struct spdk_nvmf_poll_group          *pg;
+	uint32_t                            ref;
+	TAILQ_ENTRY(spdk_nvmf_tgt_host_trid)     link;
+};
 
-#include "spdk_internal/event.h"
-#include "spdk_internal/log.h"
 
-#define ACCEPT_TIMEOUT_US	10000 /* 10ms */
-#define DEFAULT_CONN_SCHED CONNECT_SCHED_ROUND_ROBIN
+struct spdk_nvmf_tgt_conn_sched {
+	struct spdk_nvmf_poll_group *next_poll_group;
+	/* List of host trids that are connected to the target */
+	TAILQ_HEAD(, spdk_nvmf_tgt_host_trid) host_trids;
+};
 
-extern struct spdk_nvmf_tgt_conf *g_spdk_nvmf_tgt_conf;
+struct spdk_nvmf_poll_group *
+spdk_nvmf_tgt_poll_group_select(struct spdk_nvmf_tgt *tgt, struct spdk_nvmf_qpair *qpair);
 
-extern uint32_t g_spdk_nvmf_tgt_max_subsystems;
-
-extern struct spdk_nvmf_tgt *g_spdk_nvmf_tgt;
-
-typedef void (*spdk_nvmf_parse_conf_done_fn)(int status);
-
-int spdk_nvmf_parse_conf(spdk_nvmf_parse_conf_done_fn cb_fn);
-
-#endif
+#endif /* SPDK_NVMF_CONN_SCHED_H */

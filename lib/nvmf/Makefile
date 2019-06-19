@@ -1,8 +1,8 @@
 #
 #  BSD LICENSE
 #
-#  Copyright (c) Intel Corporation.
-#  All rights reserved.
+#  Copyright (c) Intel Corporation. All rights reserved.
+#  Copyright (c) 2019 Mellanox Technologies LTD. All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
 #  modification, are permitted provided that the following conditions
@@ -35,7 +35,7 @@ SPDK_ROOT_DIR := $(abspath $(CURDIR)/../..)
 include $(SPDK_ROOT_DIR)/mk/spdk.common.mk
 
 C_SRCS = ctrlr.c ctrlr_discovery.c ctrlr_bdev.c \
-	 subsystem.c nvmf.c transport.c tcp.c
+	 subsystem.c nvmf.c transport.c tcp.c nvmf_poll_group.c nvmf_conn_sched.c
 
 C_SRCS-$(CONFIG_RDMA) += rdma.c
 LIBNAME = nvmf

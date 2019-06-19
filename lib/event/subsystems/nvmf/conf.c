@@ -63,16 +63,17 @@ spdk_add_nvmf_discovery_subsystem(void)
 	return 0;
 }
 
-static void
+static uint32_t
 spdk_nvmf_read_config_file_tgt_max_subsystems(struct spdk_conf_section *sp,
 		int *deprecated_values)
 {
 	int tgt_max_subsystems;
+	uint32_t result = 0;
 	int deprecated;
 
 	tgt_max_subsystems = spdk_conf_section_get_intval(sp, "MaxSubsystems");
 	if (tgt_max_subsystems >= 0) {
-		g_spdk_nvmf_tgt_max_subsystems = tgt_max_subsystems;
+		result = tgt_max_subsystems;
 	}
 
 	deprecated = spdk_conf_section_get_intval(sp, "MaxQueueDepth");
@@ -99,6 +100,8 @@ spdk_nvmf_read_config_file_tgt_max_subsystems(struct spdk_conf_section *sp,
 	if (deprecated >= 0) {
 		*deprecated_values = -1;
 	}
+
+	return result;
 }
 
 static void
@@ -106,25 +109,37 @@ spdk_nvmf_read_config_file_tgt_conf(struct spdk_conf_section *sp,
 				    struct spdk_nvmf_tgt_conf *conf)
 {
 	int acceptor_poll_rate;
+	const char *conn_sched;
 
 	acceptor_poll_rate = spdk_conf_section_get_intval(sp, "AcceptorPollRate");
 	if (acceptor_poll_rate >= 0) {
 		conf->acceptor_poll_rate = acceptor_poll_rate;
 	}
+
+	conn_sched = spdk_conf_section_get_val(sp, "ConnSched");
+	if (conn_sched) {
+		if (strcmp(conn_sched, "HostIp") == 0) {
+			conf->conn_sched = CONNECT_SCHED_HOST_IP;
+		} else if (strcmp(conn_sched, "RoundRobin") == 0) {
+			conf->conn_sched = CONNECT_SCHED_ROUND_ROBIN;
+		} else {
+			SPDK_ERRLOG("Invalid \"ConnSched\" parameter \"%s\", will be used a default one\n", conn_sched);
+		}
+	}
 }
 
-static int
-spdk_nvmf_parse_tgt_max_subsystems(void)
+static uint32_t
+spdk_nvmf_parse_tgt_max_subsystems(int *using_deprecated_options)
 {
 	struct spdk_conf_section *sp;
-	int deprecated_values = 0;
+	uint32_t max_subsystems = 0;
 
 	sp = spdk_conf_find_section(NULL, "Nvmf");
 	if (sp != NULL) {
-		spdk_nvmf_read_config_file_tgt_max_subsystems(sp, &deprecated_values);
+		max_subsystems = spdk_nvmf_read_config_file_tgt_max_subsystems(sp, using_deprecated_options);
 	}
 
-	return deprecated_values;
+	return max_subsystems;
 }
 
 static struct spdk_nvmf_tgt_conf *
@@ -157,7 +172,7 @@ spdk_nvmf_parse_nvmf_tgt(void)
 	int using_deprecated_options;
 
 	if (!g_spdk_nvmf_tgt_max_subsystems) {
-		using_deprecated_options = spdk_nvmf_parse_tgt_max_subsystems();
+		g_spdk_nvmf_tgt_max_subsystems = spdk_nvmf_parse_tgt_max_subsystems(&using_deprecated_options);
 		if (using_deprecated_options < 0) {
 			SPDK_ERRLOG("Deprecated options detected for the NVMe-oF target.\n"
 				    "The following options are no longer controlled by the target\n"
@@ -176,7 +191,7 @@ spdk_nvmf_parse_nvmf_tgt(void)
 		}
 	}
 
-	g_spdk_nvmf_tgt = spdk_nvmf_tgt_create(g_spdk_nvmf_tgt_max_subsystems);
+	g_spdk_nvmf_tgt = spdk_nvmf_tgt_create(g_spdk_nvmf_tgt_max_subsystems, g_spdk_nvmf_tgt_conf);
 
 	g_spdk_nvmf_tgt_max_subsystems = 0;
 

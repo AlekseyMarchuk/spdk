@@ -76,6 +76,16 @@ struct spdk_nvmf_transport_opts {
 	bool		no_srq;
 };
 
+enum spdk_nvmf_tgt_connect_sched {
+	CONNECT_SCHED_ROUND_ROBIN = 0,
+	CONNECT_SCHED_HOST_IP,
+};
+
+struct spdk_nvmf_tgt_conf {
+	uint32_t acceptor_poll_rate;
+	enum spdk_nvmf_tgt_connect_sched conn_sched;
+};
+
 /**
  * Construct an NVMe-oF target.
  *
@@ -83,7 +93,8 @@ struct spdk_nvmf_transport_opts {
  *
  * \return a pointer to a NVMe-oF target on success, or NULL on failure.
  */
-struct spdk_nvmf_tgt *spdk_nvmf_tgt_create(uint32_t max_subsystems);
+struct spdk_nvmf_tgt *spdk_nvmf_tgt_create(uint32_t max_subsystems,
+		const struct spdk_nvmf_tgt_conf *tgt_conf);
 
 typedef void (spdk_nvmf_tgt_destroy_done_fn)(void *ctx, int status);
 
@@ -157,27 +168,28 @@ void spdk_nvmf_tgt_accept(struct spdk_nvmf_tgt *tgt, new_qpair_fn cb_fn);
  *
  * \param tgt The target to create a poll group.
  *
- * \return a poll group on success, or NULL on failure.
  */
-struct spdk_nvmf_poll_group *spdk_nvmf_poll_group_create(struct spdk_nvmf_tgt *tgt);
+int spdk_nvmf_poll_group_create(struct spdk_nvmf_tgt *tgt);
+
+typedef void (*desctroy_complete_cb)(void *);
 
 /**
- * Destroy a poll group.
+ * Destroy all poll groups and call @ref cpl function on completion.
  *
  * \param group The poll group to destroy.
+ * \param a function to be called on completion
  */
-void spdk_nvmf_poll_group_destroy(struct spdk_nvmf_poll_group *group);
+void spdk_nvmf_poll_groups_destroy(struct spdk_nvmf_tgt *tgt, desctroy_complete_cb cpl);
 
 /**
- * Add the given qpair to the poll group.
+ * Select a poll group and add the given qpair to the poll group.
  *
- * \param group The group to add qpair to.
- * \param qpair The qpair to add.
+ * \param tgt a pointer to nvmf target
+ * \param qpair The qpair to assign a poll group.
  *
  * \return 0 on success, -1 on failure.
  */
-int spdk_nvmf_poll_group_add(struct spdk_nvmf_poll_group *group,
-			     struct spdk_nvmf_qpair *qpair);
+int spdk_nvmf_poll_group_add(struct spdk_nvmf_tgt *tgt, struct spdk_nvmf_qpair *qpair);
 
 typedef void (*nvmf_qpair_disconnect_cb)(void *ctx);
 

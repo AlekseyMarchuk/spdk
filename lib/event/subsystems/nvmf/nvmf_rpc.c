@@ -1343,7 +1343,7 @@ SPDK_RPC_REGISTER("set_nvmf_target_max_subsystems", spdk_rpc_set_nvmf_target_max
 
 static int decode_conn_sched(const struct spdk_json_val *val, void *out)
 {
-	enum spdk_nvmf_connect_sched *sched = out;
+	enum spdk_nvmf_tgt_connect_sched *sched = out;
 
 	if (spdk_json_strequal(val, "roundrobin") == true) {
 		*sched = CONNECT_SCHED_ROUND_ROBIN;
